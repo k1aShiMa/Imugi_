@@ -1,4 +1,4 @@
-# Imugi_ 🐉
+# Imugi_
 
 > *In Korean folklore, the Imugi is a proto-dragon a serpent lurking unseen beneath rivers for a thousand years, waiting to ascend. It is patient, hidden, and inevitable.*
 
@@ -10,14 +10,14 @@ A cross-platform network tunneling and pivoting tool written in Rust, designed f
 
 ## Features
 
-- 🔀 **Bidirectional tunneling** route traffic through a compromised pivot host transparently
-- 🖥️ **Cross-platform** single codebase compiled natively for Linux and Windows
-- 🦀 **Written in Rust** low overhead, no GC pauses, minimal runtime footprint
-- 🔒 **Encrypted transport** traffic between agent and operator is encrypted in transit
-- 🕵️ **Low signature profile** no dependency on common C2 frameworks or detectable runtimes
-- ⚡ **Async I/O** built on Tokio for efficient concurrent connection handling
-- 🌐 **TUN/TAP interface support** operator-side interface for full network-layer routing (Linux)
-- 🪟 **WinDivert / raw socket support** Windows pivot agent traffic capture
+- **Bidirectional tunneling** route traffic through a compromised pivot host transparently
+- **Cross-platform** single codebase compiled natively for Linux and Windows
+- **Written in Rust** low overhead, no GC pauses, minimal runtime footprint
+- **Encrypted transport** traffic between agent and operator is encrypted in transit
+- **Low signature profile** no dependency on common C2 frameworks or detectable runtimes
+- **Async I/O** built on Tokio for efficient concurrent connection handling
+- **TUN/TAP interface support** operator-side interface for full network-layer routing (Linux)
+- **WinDivert / raw socket support** Windows pivot agent traffic capture
 
 ---
 
