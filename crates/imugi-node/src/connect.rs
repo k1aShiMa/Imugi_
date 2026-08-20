@@ -45,7 +45,7 @@ pub async fn connect(proxy_addr: SocketAddr, tls_config: Arc<ClientConfig>) -> R
         version: VERSION,
         hostname: sysinfo::get_hostname(),
         username: sysinfo::get_username(),
-        os: "linux".to_string(),
+        os: std::env::consts::OS.to_string(),
         interfaces: sysinfo::get_interfaces(),
         node_id: Uuid::new_v4().to_string(),
     };

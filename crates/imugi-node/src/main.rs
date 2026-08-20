@@ -1,4 +1,5 @@
 mod connect;
+#[cfg(any(target_os = "linux", windows))]
 mod forward;
 mod sysinfo;
 mod tls;
@@ -70,9 +71,12 @@ async fn run_once(proxy_addr: SocketAddr, tls_config: Arc<rustls::ClientConfig>)
 
     info!("Tunnel active — session {}", session.session_id);
 
+    #[cfg(any(target_os = "linux", windows))]
     forward::run_forwarding(session.tls)
         .await
         .context("Forwarding loop")?;
 
-    Ok(())
+    #[cfg(not(any(target_os = "linux", windows)))]
+    anyhow::bail!("Packet forwarding is only supported on Linux and Windows");
+
 }

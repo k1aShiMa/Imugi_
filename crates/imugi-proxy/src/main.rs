@@ -1,4 +1,5 @@
 mod certs;
+mod protocol;
 mod session;
 mod tun;
 mod tunnel;
@@ -52,9 +53,12 @@ async fn main() -> Result<()> {
         .compact()
         .init();
  
+    #[cfg(unix)]
     if unsafe { libc::geteuid() } != 0 {
         warn!("Not running as root — TUN creation will fail. Use: sudo imugi-proxy");
     }
+    #[cfg(windows)]
+    warn!("TUN interfaces on Windows are not supported — run the proxy on Linux.");
  
     // TLS
     let (cert_pem, key_pem) = match (&args.cert, &args.key) {

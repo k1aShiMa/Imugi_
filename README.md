@@ -177,6 +177,35 @@ evil-winrm -i 172.16.0.10 -u Administrator -p 'Password123'
 
 ---
 
+## Changelog
+
+### 2026-08-20 — Build fixes & cross-platform support
+
+**Compile fixes**
+
+- `imugi-proxy/Cargo.toml`: added all missing dependencies (`rustls`, `tokio-rustls`, `rustls-pemfile`, `clap`, `tracing`, `tracing-subscriber`, `serde`, `serde_json`, `dashmap`, `uuid`, `libc`, `bytes`, `futures`, `rcgen`, `imugi-common`)
+- Created `crates/imugi-proxy/src/protocol.rs`: re-exports `imugi-common` wire types under the names the proxy codebase uses (`AgentHello` → `NodeHello`, `AgentInterface` → `NodeInterface`, `AgentMessage` → `NodeMsg`, `ProxyCommand` → `ProxyCmd`)
+- `imugi-node/src/forward.rs`: removed `sin_len` from `sockaddr_in` initializer (macOS-only field absent on Linux)
+
+**Windows + Linux support (node)**
+
+- `forward.rs` — split into two platform implementations behind `#[cfg]` gates:
+  - *Linux*: existing `AF_PACKET` raw socket for RX (L2 capture), `IPPROTO_RAW` + `IP_HDRINCL` for TX; uses `tokio::io::unix::AsyncFd` for non-blocking reads
+  - *Windows*: `WSASocket` with `IPPROTO_IP` + `WSAIoctl(SIO_RCVALL)` for promiscuous IP capture (no L2 header to strip), `IPPROTO_RAW` + `IP_HDRINCL` for TX; recv runs in a dedicated blocking thread feeding a tokio channel
+- `sysinfo.rs` — replaced `libc::getifaddrs` (Linux-only) with the `if-addrs` crate (cross-platform interface enumeration); hostname/username now use `/proc` + passwd on Linux and `COMPUTERNAME`/`USERNAME` env vars on Windows
+- `connect.rs` — replaced hardcoded `"linux"` OS string with `std::env::consts::OS`
+- `libc` moved to `[target.'cfg(unix)'.dependencies]`; `windows-sys 0.52` added as a Windows-only dependency
+
+**Windows + Linux support (proxy)**
+
+- `tun/mod.rs` — `TunDevice` creation and read/write gated with `#[cfg(unix)]`/`#[cfg(windows)]`; Windows path returns a clear error directing users to run the proxy on Linux
+- Routing commands: `ip route add/del` on Linux/macOS, `route ADD/DELETE` on Windows
+- IP forwarding: `/proc/sys/net/ipv4/ip_forward` on Linux, `sysctl` on macOS, `netsh interface ipv4 set global forwarding=enabled` on Windows
+- `tun` crate dependency moved to `[target.'cfg(unix)'.dependencies]` (crate has no Windows support)
+- `main.rs` — `libc::geteuid()` root check gated to `#[cfg(unix)]`
+
+---
+
 ## Comparison to ligolo-ng
 
 Imugi_ draws heavy inspiration from [ligolo-ng](https://github.com/nicocha30/ligolo-ng). Key differences:
