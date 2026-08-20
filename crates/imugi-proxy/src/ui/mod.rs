@@ -2,36 +2,36 @@
 ///
 /// Runs in its own task, reads stdin commands, prints session info.
 /// Keeps it terminal-friendly for HTB — no TUI deps needed.
-
+ 
 use crate::session::{list_sessions, SessionMap, SessionState};
 use crate::tun::TunDevice;
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, BufReader};
-
+ 
 pub async fn run_ui(sessions: SessionMap, tun: Arc<tokio::sync::Mutex<TunDevice>>) {
     let stdin = tokio::io::stdin();
     let mut lines = BufReader::new(stdin).lines();
-
+ 
     print_banner();
     print_help();
-
+ 
     loop {
         print!("\x1b[1;32mtunneler\x1b[0m > ");
         // Flush stdout
         use std::io::Write;
         let _ = std::io::stdout().flush();
-
+ 
         let line = match lines.next_line().await {
             Ok(Some(l)) => l,
             Ok(None) => break, // EOF
             Err(_) => break,
         };
-
+ 
         let parts: Vec<&str> = line.trim().split_whitespace().collect();
         if parts.is_empty() {
             continue;
         }
-
+ 
         match parts[0] {
             "sessions" | "ls" => {
                 cmd_sessions(&sessions).await;
@@ -64,7 +64,7 @@ pub async fn run_ui(sessions: SessionMap, tun: Arc<tokio::sync::Mutex<TunDevice>
         }
     }
 }
-
+ 
 async fn cmd_sessions(sessions: &SessionMap) {
     let list = list_sessions(sessions).await;
     if list.is_empty() {
@@ -96,7 +96,7 @@ async fn cmd_sessions(sessions: &SessionMap) {
     }
     println!();
 }
-
+ 
 async fn cmd_routes(tun: &Arc<tokio::sync::Mutex<TunDevice>>) {
     let dev = tun.lock().await;
     // Read current routes from ip route
@@ -119,7 +119,7 @@ async fn cmd_routes(tun: &Arc<tokio::sync::Mutex<TunDevice>>) {
         Err(e) => eprintln!("  Failed to list routes: {}", e),
     }
 }
-
+ 
 async fn cmd_add_route(tun: &Arc<tokio::sync::Mutex<TunDevice>>, subnet: &str) {
     let dev = tun.lock().await;
     match dev.add_route(subnet) {
@@ -127,24 +127,24 @@ async fn cmd_add_route(tun: &Arc<tokio::sync::Mutex<TunDevice>>, subnet: &str) {
         Err(e) => eprintln!("  \x1b[31m✗\x1b[0m Failed: {}", e),
     }
 }
-
+ 
 async fn cmd_del_route(tun: &Arc<tokio::sync::Mutex<TunDevice>>, subnet: &str) {
     let dev = tun.lock().await;
     dev.del_route(subnet);
     println!("  \x1b[32m✓\x1b[0m Route {} removed", subnet);
 }
-
+ 
 fn print_banner() {
     println!(
         r#"
   ╔════════════════════════════════════════╗
-  ║        tunneler-proxy  v0.1.0          ║
+  ║        imugi-proxy  v0.1.0             ║
   ║    Linux TUN/TLS pivoting proxy        ║
   ╚════════════════════════════════════════╝
 "#
     );
 }
-
+ 
 fn print_help() {
     println!(
         r#"  Commands:

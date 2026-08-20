@@ -73,8 +73,14 @@ git clone https://github.com/k1aShiMa/Imugi_
 cd Imugi_
 
 # Linux binaries
-cargo build --release -p imugi-proxy
-cargo build --release -p imugi-node
+# Add the musl target
+rustup target add x86_64-unknown-linux-musl
+
+# On Debian/Ubuntu you need musl-tools
+sudo apt install musl-tools
+
+# Compile against musl instead of glibc
+cargo build --release -p imugi-node --target x86_64-unknown-linux-musl
 
 # Windows agent (cross-compiled from Linux)
 cargo build --release -p imugi-node --target x86_64-pc-windows-gnu
@@ -230,19 +236,9 @@ Imugi_ draws heavy inspiration from [ligolo-ng](https://github.com/nicocha30/lig
 
 ---
 
-## OPSEC Notes
+## Authors
 
-- Agent connects **outbound** no listening ports on the pivot host
-- No hardcoded strings in release builds (planned: compile-time encryption)
-- Binary does not write any artifacts to disk beyond itself
-- Recommend running from a path that blends in (e.g. `C:\Windows\Temp\`, `/tmp/`)
-- Use `--secret` in any real engagement to prevent unauthorized agent connections
-
----
-
-## Author
-
-**k1aShiMa** *tools signed with an underscore*
+**k1aShiMa & GohanFX** *tools signed with an underscore*
 
 Part of the `Kitsune_` tool family:
 - `Kitsune_` C2 framework

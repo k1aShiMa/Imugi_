@@ -1,7 +1,11 @@
 [package]
-name = "imugi-proxy"
+name    = "imugi-proxy"
 version = "0.1.0"
 edition = "2021"
+
+[[bin]]
+name = "imugi-proxy"
+path = "src/main.rs"
 
 [dependencies]
 imugi-common       = { path = "../common" }
@@ -21,7 +25,6 @@ uuid               = { workspace = true }
 libc               = { workspace = true }
 clap               = { workspace = true }
 dashmap            = { workspace = true }
-rcgen              = "0.12"
-
-[target.'cfg(unix)'.dependencies]
+rcgen              = "=0.11.3"
 tun                = { version = "0.6", features = ["async"] }
+ipnet              = "=2.9.0"

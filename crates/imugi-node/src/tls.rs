@@ -6,24 +6,24 @@
 ///
 /// In production you'd bake the fingerprint into the binary at compile time
 /// using an env! macro or build script — no flags needed.
-
+ 
 use anyhow::Result;
 use rustls::{
     client::{ServerCertVerified, ServerCertVerifier},
     Certificate, ClientConfig, Error as TlsError, ServerName,
 };
 use std::{sync::Arc, time::SystemTime};
-
+ 
 pub fn build_client_config(accept_any: bool, fingerprint: Option<&str>) -> Result<ClientConfig> {
     if accept_any {
         return Ok(make_dangerous_config());
     }
-
+ 
     if let Some(fp) = fingerprint {
         let expected = fp.to_lowercase();
         return Ok(make_pinned_config(expected));
     }
-
+ 
     // Default: use system roots (webpki-roots would go here; for now dangerous)
     // For HTB labs accept_any is the practical choice — warn loudly
     tracing::warn!(
@@ -32,9 +32,9 @@ pub fn build_client_config(accept_any: bool, fingerprint: Option<&str>) -> Resul
     );
     Ok(make_dangerous_config())
 }
-
+ 
 // ── Accept-any verifier ───────────────────────────────────────────────────────
-
+ 
 fn make_dangerous_config() -> ClientConfig {
     let mut config = ClientConfig::builder()
         .with_safe_defaults()
@@ -43,9 +43,9 @@ fn make_dangerous_config() -> ClientConfig {
     config.enable_sni = false;
     config
 }
-
+ 
 struct AcceptAny;
-
+ 
 impl ServerCertVerifier for AcceptAny {
     fn verify_server_cert(
         &self,
@@ -59,20 +59,20 @@ impl ServerCertVerifier for AcceptAny {
         Ok(ServerCertVerified::assertion())
     }
 }
-
+ 
 // ── Fingerprint-pinned verifier ───────────────────────────────────────────────
-
+ 
 fn make_pinned_config(fingerprint: String) -> ClientConfig {
     ClientConfig::builder()
         .with_safe_defaults()
         .with_custom_certificate_verifier(Arc::new(PinnedVerifier { fingerprint }))
         .with_no_client_auth()
 }
-
+ 
 struct PinnedVerifier {
     fingerprint: String,
 }
-
+ 
 impl ServerCertVerifier for PinnedVerifier {
     fn verify_server_cert(
         &self,
@@ -96,7 +96,7 @@ impl ServerCertVerifier for PinnedVerifier {
         }
     }
 }
-
+ 
 fn sha256_hex(data: &[u8]) -> String {
     // NOTE: the proxy's certs.rs uses a non-crypto hash as placeholder —
     // keep this consistent. When you swap to sha2 crate on the proxy side,

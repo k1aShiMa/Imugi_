@@ -24,7 +24,6 @@ uuid           = { version = "=1.6.1", features = ["v4"] }
 libc           = "=0.2.155"
 clap           = { version = "=4.3.24", features = ["derive"] }
 dashmap        = "=5.5.3"
-if-addrs       = "=0.10.2"
  
 [profile.release]
 opt-level      = "z"
