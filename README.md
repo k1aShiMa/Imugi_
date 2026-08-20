@@ -73,11 +73,11 @@ git clone https://github.com/k1aShiMa/Imugi_
 cd Imugi_
 
 # Linux binaries
-cargo build --release --bin imugi-proxy
-cargo build --release --bin imugi-agent
+cargo build --release -p imugi-proxy
+cargo build --release -p imugi-node
 
 # Windows agent (cross-compiled from Linux)
-cargo build --release --bin imugi-agent --target x86_64-pc-windows-gnu
+cargo build --release -p imugi-node --target x86_64-pc-windows-gnu
 ```
 
 Output binaries will be in `target/release/` and `target/x86_64-pc-windows-gnu/release/`.
@@ -89,11 +89,18 @@ Output binaries will be in `target/release/` and `target/x86_64-pc-windows-gnu/r
 ### 1. Start the proxy on your operator machine
 
 ```bash
-sudo ./imugi-proxy --listen 0.0.0.0:9001 --tun imugi0
+# Quick lab use, default 4444 port execution
+sudo ./imugi-proxy
+
+# Help menu
+sudo ./imugi-proxy -h
+
+# Custom port usage
+sudo ./imugi-proxy --listen 0.0.0.0:443
 ```
 
 ```
-[*] Imugi_ proxy listening on 0.0.0.0:9001
+[*] Imugi_ proxy listening on 0.0.0.0:4444
 [*] TUN interface 'imugi0' created
 [*] Waiting for agent connection...
 ```
@@ -102,24 +109,20 @@ sudo ./imugi-proxy --listen 0.0.0.0:9001 --tun imugi0
 
 **Linux pivot:**
 ```bash
-./imugi-agent --connect <YOUR_IP>:9001
+# Quick lab use — no pinning
+./imugi-node --proxy $YOUR_IP:4444 --accept-any-cert
+
+# With retry (survives connection drops)
+./imugi-node --proxy $YOUR_IP:4444 --accept-any-cert --retry 15
+
+# With cert pinning (fingerprint from proxy startup output)
+./imugi-node --proxy $YOUR_IP:4444 --fingerprint $FINGERPRINT
 ```
 
 **Windows pivot:**
 ```cmd
-imugi-agent.exe --connect <YOUR_IP>:9001
+imugi-agent.exe --proxy <YOUR_IP>:4444
 ```
-
-### 3. Add a route on the operator machine
-
-Once the agent connects, add a route through the TUN interface to reach the internal subnet:
-
-```bash
-# Example: target subnet is 172.16.0.0/24
-sudo ip route add 172.16.0.0/24 dev imugi0
-```
-
-You can now reach internal hosts directly from your operator machine:
 
 ```bash
 nmap -sV 172.16.0.10
@@ -132,22 +135,30 @@ evil-winrm -i 172.16.0.10 -u Administrator -p 'Password123'
 
 ### `imugi-proxy`
 
-| Flag | Description | Default |
-|---|---|---|
-| `--listen` | Address and port to listen on | `0.0.0.0:9001` |
-| `--tun` | TUN interface name to create | `imugi0` |
-| `--secret` | Pre-shared key for auth | None |
-| `--verbose` | Enable verbose logging | Off |
+| Flag       | Short | Description                                                                | Default       |
+| ---------- | ----- | -------------------------------------------------------------------------- | ------------- |
+| --listen   | `-l`  | Address and port to listen for agent connections                           | 0.0.0.0:4444  |
+| --tun-name | -     | TUN interface name to create                                               | imugi0        |
+| --tun-addr | -     | IP address assigned to the TUN interface                                   | 240.0.0.1     |
+| --tun-mask | -     | Subnet mask for the TUN interface                                          | 255.255.255.0 |
+| --route    | `-r`  | Route add at startup, repeatable (`-r 10.10.110.0/24 -r 192.168.110.0/24`) | None          |
+| --cert     | -     | Path to TLS certificate file (PEM)                                         | None          |
+| --key      | -     | Path to TLS private key (PEM)                                              | None          |
+| --log      | -     | Log level (right now just info)                                            | `info`          |
+| --help     | `-h`  |                                                                            | -             |
+| --version  | `-V`  |                                                                            | -             |
 
-### `imugi-agent`
+### `imugi-node`
 
-| Flag | Description | Default |
-|---|---|---|
-| `--connect` | Proxy address to connect back to | Required |
-| `--secret` | Pre-shared key (must match proxy) | None |
-| `--retry` | Reconnect on disconnect | Off |
-| `--retry-delay` | Seconds between reconnect attempts | `5` |
-| `--verbose` | Enable verbose logging | Off |
+| Flag               | Short | Description                                                            | Default  |
+| ------------------ | ----- | ---------------------------------------------------------------------- | -------- |
+| --proxy $Addr      | `-p`    | Proxy address to connect back to (`ip:port`)                           | Required |
+| --retry            | -     | Retry interval on disconnect in seconds (0 = no retry)                 | 10       |
+| --accept-any-cert  | -     | Accept any TLS certificate, for lab use, no cert pinning               | Off      |
+| --fingerprint $HEX | -     | Proxy cert SHA fingerprint for pinning (hex from proxy startup output) | None     |
+| --log              | -     | Log level (right now just info)                                        | `info`   |
+| --help             | `-h`    | Print  help                                                            | -        |
+| --version          | `-V`    | Print version                                                          | -        |
 
 ---
 
@@ -155,21 +166,19 @@ evil-winrm -i 172.16.0.10 -u Administrator -p 'Password123'
 
 | Environment | Status |
 |---|---|
-| HTB Linux labs (pivot) | ✅ |
-| HTB Windows labs (pivot) | ✅ |
-| Parrot Linux (operator) | ✅ |
-| Ubuntu 22.04 (operator) | ✅ |
-| Windows 10/11 (agent) | ✅ |
-| Windows Server 2019/2022 (agent) | ✅ |
+| HTB Linux labs (pivot) | In-prog |
+| Parrot Linux (operator) | Successful |
+| Windows 10/11 (agent) | In-prog |
+| Windows Server 2019/2022 (agent) | In-prog |
 
 ---
 
 ## Roadmap
 
+- [X] Write the file to disk on Linux environment
 - [ ] In-memory agent execution (reflective loading)
 - [ ] DLL sideloading delivery variant
 - [ ] Compile-time string encryption
-- [ ] Manual syscalls (bypass userland hooks)
 - [ ] Mesh-based multi-hop tunneling
 - [ ] HTTPS/WebSocket transport option
 - [ ] Config file support
@@ -243,4 +252,6 @@ Part of the `Kitsune_` tool family:
 
 ## License
 
-For authorized security research and penetration testing use only.
+Copyright (C) 2026 k1aShiMa
+This program is licensed under the GNU General Public License v3.
+See LICENSE for details.
