@@ -252,6 +252,6 @@ Part of the `Kitsune_` tool family:
 
 ## License
 
-Copyright (C) 2026 k1aShiMa
+Copyright (C) 2026 k1aShiMa and GohanFX
 This program is licensed under the GNU General Public License v3.
 See LICENSE for details.
