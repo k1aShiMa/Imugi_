@@ -1,7 +1,5 @@
 # Imugi_
 
-> *In Korean folklore, the Imugi is a proto-dragon a serpent lurking unseen beneath rivers for a thousand years, waiting to ascend. It is patient, hidden, and inevitable.*
-
 A cross-platform network tunneling and pivoting tool written in Rust, designed for penetration testing and red team operations. Imugi_ provides encrypted tunnel infrastructure between agents and operators, enabling seamless network pivoting through compromised hosts.
 
 >  **Disclaimer:** Imugi_ is intended strictly for authorized penetration testing, red team engagements, and controlled lab environments (e.g. HackTheBox, TryHackMe, CRTE/CRTO labs). Do not use against systems you do not have explicit written permission to test. The author assumes no responsibility for misuse.
