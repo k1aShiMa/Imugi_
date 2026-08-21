@@ -1,109 +1,86 @@
-/// System information gathering for the Linux node.
-/// Enumerates network interfaces and pulls hostname/username.
- 
 use imugi_common::NodeInterface;
-use std::net::{IpAddr, Ipv4Addr};
- 
-/// Collect all non-loopback interfaces with their CIDR addresses.
+
 pub fn get_interfaces() -> Vec<NodeInterface> {
-    let mut out = Vec::new();
- 
-    // Read interfaces from /proc/net/if_inet6 and /proc/net/fib_trie
-    // Simpler: use getifaddrs via libc
-    unsafe {
-        let mut ifap: *mut libc::ifaddrs = std::ptr::null_mut();
-        if libc::getifaddrs(&mut ifap) != 0 {
-            return out;
+    let Ok(ifaces) = if_addrs::get_if_addrs() else {
+        return vec![];
+    };
+
+    let mut map: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::new();
+
+    for iface in ifaces {
+        if iface.is_loopback() {
+            continue;
         }
- 
-        let mut seen: std::collections::HashMap<String, Vec<String>> =
-            std::collections::HashMap::new();
- 
-        let mut ifa = ifap;
-        while !ifa.is_null() {
-            let name = std::ffi::CStr::from_ptr((*ifa).ifa_name)
-                .to_string_lossy()
-                .into_owned();
- 
-            // Skip loopback
-            if name == "lo" {
-                ifa = (*ifa).ifa_next;
-                continue;
+        let cidr = match &iface.addr {
+            if_addrs::IfAddr::V4(a) => {
+                let prefix = u32::from(a.netmask).count_ones();
+                format!("{}/{}", a.ip, prefix)
             }
- 
-            if !(*ifa).ifa_addr.is_null() {
-                let family = (*(*ifa).ifa_addr).sa_family as i32;
- 
-                if family == libc::AF_INET {
-                    let sin = (*ifa).ifa_addr as *const libc::sockaddr_in;
-                    let addr = Ipv4Addr::from(u32::from_be((*sin).sin_addr.s_addr));
- 
-                    // Get prefix length from netmask
-                    let prefix = if !(*ifa).ifa_netmask.is_null() {
-                        let mask = (*ifa).ifa_netmask as *const libc::sockaddr_in;
-                        let mask_u32 = u32::from_be((*mask).sin_addr.s_addr);
-                        mask_u32.count_ones() as u8
-                    } else {
-                        32
-                    };
- 
-                    let cidr = format!("{}/{}", addr, prefix);
-                    seen.entry(name).or_default().push(cidr);
-                } else if family == libc::AF_INET6 {
-                    let sin6 = (*ifa).ifa_addr as *const libc::sockaddr_in6;
-                    let addr = IpAddr::V6(std::net::Ipv6Addr::from((*sin6).sin6_addr.s6_addr));
-                    // Skip link-local fe80::
-                    if !addr.to_string().starts_with("fe80") {
-                        seen.entry(name).or_default().push(format!("{}/128", addr));
-                    }
+            if_addrs::IfAddr::V6(a) => {
+                let ip = a.ip.to_string();
+                if ip.starts_with("fe80") {
+                    continue;
                 }
+                let prefix = u128::from(a.netmask).count_ones();
+                format!("{}/{}", a.ip, prefix)
             }
- 
-            ifa = (*ifa).ifa_next;
-        }
- 
-        libc::freeifaddrs(ifap);
- 
-        for (name, addrs) in seen {
-            out.push(NodeInterface { name, addrs });
-        }
+        };
+        map.entry(iface.name).or_default().push(cidr);
     }
- 
-    out
+
+    map.into_iter()
+        .map(|(name, addrs)| NodeInterface { name, addrs })
+        .collect()
 }
- 
+
 pub fn get_hostname() -> String {
-    std::fs::read_to_string("/proc/sys/kernel/hostname")
-        .unwrap_or_else(|_| "unknown".to_string())
-        .trim()
-        .to_string()
+    #[cfg(target_os = "linux")]
+    {
+        std::fs::read_to_string("/proc/sys/kernel/hostname")
+            .unwrap_or_else(|_| "unknown".to_string())
+            .trim()
+            .to_string()
+    }
+    #[cfg(windows)]
+    {
+        std::env::var("COMPUTERNAME").unwrap_or_else(|_| "unknown".to_string())
+    }
+    #[cfg(not(any(target_os = "linux", windows)))]
+    {
+        std::env::var("HOSTNAME").unwrap_or_else(|_| "unknown".to_string())
+    }
 }
- 
+
 pub fn get_username() -> String {
-    // Try $USER env, fall back to reading /proc/self/status for Uid then /etc/passwd
-    if let Ok(u) = std::env::var("USER") {
-        if !u.is_empty() { return u; }
+    #[cfg(unix)]
+    {
+        if let Ok(u) = std::env::var("USER") {
+            if !u.is_empty() {
+                return u;
+            }
+        }
+        if let Ok(u) = std::env::var("LOGNAME") {
+            if !u.is_empty() {
+                return u;
+            }
+        }
+        let uid = unsafe { libc::getuid() };
+        lookup_passwd(uid).unwrap_or_else(|| format!("uid:{}", uid))
     }
-    if let Ok(u) = std::env::var("LOGNAME") {
-        if !u.is_empty() { return u; }
+    #[cfg(windows)]
+    {
+        std::env::var("USERNAME").unwrap_or_else(|_| "unknown".to_string())
     }
-    // Read UID from /proc/self/status, look up in /etc/passwd
-    let uid = get_uid();
-    lookup_passwd(uid).unwrap_or_else(|| format!("uid:{}", uid))
 }
- 
-fn get_uid() -> u32 {
-    unsafe { libc::getuid() }
-}
- 
+
+#[cfg(unix)]
 fn lookup_passwd(uid: u32) -> Option<String> {
     let passwd = std::fs::read_to_string("/etc/passwd").ok()?;
     for line in passwd.lines() {
         let parts: Vec<&str> = line.split(':').collect();
-        if parts.len() >= 3 {
-            if parts[2].parse::<u32>().ok() == Some(uid) {
-                return Some(parts[0].to_string());
-            }
+        if parts.len() >= 3 && parts[2].parse::<u32>().ok() == Some(uid) {
+            return Some(parts[0].to_string());
         }
     }
     None

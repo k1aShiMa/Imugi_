@@ -41,7 +41,7 @@ pub struct NodeInterface {
 #[serde(tag = "type", content = "data")]
 pub enum ProxyCmd {
     /// Assign session and start forwarding.
-    StartTunnel { session_id: String },
+    StartTunnel { session_id: String, routes: Vec<String> },
     /// Graceful shutdown.
     Shutdown,
     /// Keepalive.

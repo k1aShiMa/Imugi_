@@ -59,21 +59,23 @@ pub async fn run_proxy(
         let acceptor = acceptor.clone();
         let sessions = sessions.clone();
         let tun = tun.clone();
- 
+        let routes = routes.clone();
+
         tokio::spawn(async move {
-            if let Err(e) = handle_agent(stream, peer, acceptor, sessions, tun).await {
+            if let Err(e) = handle_agent(stream, peer, acceptor, sessions, tun, routes).await {
                 error!("Agent {} error: {:#}", peer, e);
             }
         });
     }
 }
- 
+
 async fn handle_agent(
     stream: TcpStream,
     peer: SocketAddr,
     acceptor: TlsAcceptor,
     sessions: SessionMap,
     tun: Arc<tokio::sync::Mutex<TunDevice>>,
+    routes: Vec<String>,
 ) -> Result<()> {
     // --- TLS handshake ---
     let mut tls = acceptor
@@ -120,6 +122,7 @@ async fn handle_agent(
     // --- Send StartTunnel ---
     let start = ProxyCmd::StartTunnel {
         session_id: session_id.clone(),
+        routes: routes.clone(),
     };
     write_json_msg(&mut tls, &start)
         .await

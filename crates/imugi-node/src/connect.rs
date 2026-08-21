@@ -44,7 +44,7 @@ pub async fn connect(proxy_addr: SocketAddr, tls_config: Arc<ClientConfig>) -> R
         version: VERSION,
         hostname: sysinfo::get_hostname(),
         username: sysinfo::get_username(),
-        os: "linux".to_string(),
+        os: std::env::consts::OS.to_string(),
         interfaces: sysinfo::get_interfaces(),
         node_id: Uuid::new_v4().to_string(),
     };
@@ -66,7 +66,7 @@ pub async fn connect(proxy_addr: SocketAddr, tls_config: Arc<ClientConfig>) -> R
     // StartTunnel — proxy tells us which subnets to route
     let cmd: ProxyCmd = read_json_msg(&mut tls).await.context("Read StartTunnel")?;
     let routes = match cmd {
-        ProxyCmd::StartTunnel { routes } => {
+        ProxyCmd::StartTunnel { session_id, routes} => {
             info!("Tunnel started, routing subnets: {:?}", routes);
             routes
         }

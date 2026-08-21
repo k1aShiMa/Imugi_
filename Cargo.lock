@@ -377,6 +377,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc0fef456e4baa96da950455cd02c081ca953b141298e41db3fc7e36b1da849c"
 
 [[package]]
+name = "if-addrs"
+version = "0.10.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cabb0019d51a643781ff15c9c8a3e5dedc365c47211270f4e8f82812fedd8f0a"
+dependencies = [
+ "libc",
+ "windows-sys 0.48.0",
+]
+
+[[package]]
 name = "imugi-common"
 version = "0.1.0"
 dependencies = [
@@ -394,6 +404,7 @@ dependencies = [
  "bytes",
  "clap",
  "futures",
+ "if-addrs",
  "imugi-common",
  "libc",
  "rustls",
@@ -405,7 +416,9 @@ dependencies = [
  "tokio-util",
  "tracing",
  "tracing-subscriber",
+ "tun",
  "uuid",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]

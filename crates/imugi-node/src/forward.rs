@@ -95,38 +95,6 @@ pub async fn run_forwarding(
 
     let (mut tls_rx, mut tls_tx) = tokio::io::split(tls);
 
-    // TLS reader → TUN writer (proxy → node network)
-    let tx_handle = tokio::spawn(async move {
-        let mut header = [0u8; DATA_HEADER_LEN];
-        loop {
-            match tls_rx.read_exact(&mut header).await {
-                Ok(_) => {}
-                Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
-                    info!("Proxy disconnected");
-                    break;
-                }
-                Err(e) => { warn!("TLS read: {}", e); break; }
-            }
-
-            let len = decode_len(&header);
-            if len == 0 || len > 65535 { warn!("Bad len {}", len); continue; }
-
-            let mut pkt = vec![0u8; len];
-            if tls_rx.read_exact(&mut pkt).await.is_err() { break; }
-
-            // Write into TUN — kernel routes it to the right place on the target network
-            // (Moved into a shared Mutex so we can write from this task)
-            // NOTE: we can't share tun across tasks without Arc<Mutex<>>, so we
-            // use a channel instead — see architecture below
-            let _ = pkt; // handled via channel below
-        }
-    });
-
-    // Better architecture: use channels to bridge between the two directions
-    // so we don't need to split the TUN across tasks
-    tx_handle.abort(); // abort the placeholder above
-
-    // Proper bidirectional loop in a single task each direction via channels
     let (to_tun_tx, mut to_tun_rx) = tokio::sync::mpsc::channel::<Vec<u8>>(256);
     let (from_tun_tx, mut from_tun_rx) = tokio::sync::mpsc::channel::<Vec<u8>>(256);
 
@@ -159,13 +127,12 @@ pub async fn run_forwarding(
     });
 
     // TUN read/write loop (single task owns the TUN device — no locking needed)
-    let from_tun_tx2 = from_tun_tx.clone();
     loop {
         tokio::select! {
             // TUN → proxy
             pkt = tun.read_packet() => {
                 match pkt {
-                    Ok(p) => { if from_tun_tx2.send(p).await.is_err() { break; } }
+                    Ok(p) => { if from_tun_tx.send(p).await.is_err() { break; } }
                     Err(e) => { error!("TUN read: {}", e); break; }
                 }
             }

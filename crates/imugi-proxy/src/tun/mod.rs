@@ -197,9 +197,14 @@ fn cidr_to_network_mask(cidr: &str) -> Result<(String, String)> {
 pub fn enable_ip_forwarding() -> Result<()> {
     #[cfg(target_os = "linux")]
     {
-        std::fs::write("/proc/sys/net/ipv4/ip_forward", "1")
-            .context("Failed to enable IP forwarding — are you root?")?;
-        info!("IP forwarding enabled");
+        match std::fs::write("/proc/sys/net/ipv4/ip_forward", "1") {
+            Ok(_) => info!("IP forwarding enabled"),
+            Err(e) => warn!(
+                "Could not enable IP forwarding ({}); continuing — \
+                 ensure 'sysctl -w net.ipv4.ip_forward=1' is set on the host",
+                e
+            ),
+        }
     }
 
     #[cfg(windows)]
