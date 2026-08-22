@@ -22,6 +22,18 @@ tracing-subscriber = { workspace = true }
 tokio-util         = { workspace = true }
 futures            = { workspace = true }
 uuid               = { workspace = true }
-libc               = { workspace = true }
 clap               = { workspace = true }
-tun                = { version = "0.6", features = ["async"] }
+ 
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = { workspace = true }
+tun  = { version = "0.6", features = ["async"] }
+ 
+[target.'cfg(target_os = "windows")'.dependencies]
+tun2        = { version = "2", features = ["async"] }
+windows-sys = { version = "0.52", features = [
+    "Win32_NetworkManagement_IpHelper",
+    "Win32_NetworkManagement_Ndis",
+    "Win32_Networking_WinSock",
+    "Win32_System_SystemInformation",
+    "Win32_System_WindowsProgramming",
+] }

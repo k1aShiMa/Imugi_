@@ -1,7 +1,24 @@
 mod connect;
-mod forward;
-mod sysinfo;
 mod tls;
+ 
+// Platform-specific modules
+#[cfg(target_os = "linux")]
+mod forward_linux;
+#[cfg(target_os = "linux")]
+mod sysinfo_linux;
+#[cfg(target_os = "linux")]
+use forward_linux as forward;
+#[cfg(target_os = "linux")]
+use sysinfo_linux as sysinfo;
+ 
+#[cfg(target_os = "windows")]
+mod forward_windows;
+#[cfg(target_os = "windows")]
+mod sysinfo_windows;
+#[cfg(target_os = "windows")]
+use forward_windows as forward;
+#[cfg(target_os = "windows")]
+use sysinfo_windows as sysinfo;
  
 use anyhow::{Context, Result};
 use clap::Parser;
@@ -10,7 +27,7 @@ use tracing::{error, info, warn};
 use tracing_subscriber::EnvFilter;
  
 #[derive(Parser, Debug)]
-#[command(name = "imugi-node", about = "Imugi_ Linux node", version)]
+#[command(name = "imugi-node", about = "Imugi_ node", version)]
 struct Args {
     /// Proxy address to connect back to (ip:port)
     #[arg(short, long)]
@@ -70,7 +87,6 @@ async fn run_once(proxy_addr: SocketAddr, tls_config: Arc<rustls::ClientConfig>)
  
     info!("Tunnel active — session {}", session.session_id);
  
-    // Pass the routes the proxy told us about down to the forwarding loop
     forward::run_forwarding(session.tls, session.routes)
         .await
         .context("Forwarding loop")?;
