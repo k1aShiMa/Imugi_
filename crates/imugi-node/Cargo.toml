@@ -2,11 +2,11 @@
 name    = "imugi-node"
 version = "0.1.0"
 edition = "2021"
-
+ 
 [[bin]]
 name = "imugi-node"
 path = "src/main.rs"
-
+ 
 [dependencies]
 imugi-common       = { path = "../common" }
 tokio              = { workspace = true }
@@ -24,3 +24,4 @@ futures            = { workspace = true }
 uuid               = { workspace = true }
 libc               = { workspace = true }
 clap               = { workspace = true }
+tun                = { version = "0.6", features = ["async"] }

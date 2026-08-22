@@ -1,14 +1,13 @@
-/// Core tunnel engine.
-///
-/// Listens for incoming agent TLS connections, performs the handshake,
-/// then runs the bidirectional packet forwarding loop between the TUN
-/// interface and the agent's TCP data stream.
+/// Core tunnel engine — TLS listener, node handshake, packet forwarding.
  
 use crate::{
     session::{register_session, SessionMap, SessionState},
     tun::TunDevice,
 };
-use imugi_common::{NodeHello, NodeMsg, ProxyCmd, DATA_HEADER_LEN, MAGIC};
+use imugi_common::{
+    decode_len, encode_packet, NodeHello, NodeMsg, ProxyCmd,
+    DATA_HEADER_LEN, MAGIC, VERSION,
+};
 use anyhow::{bail, Context, Result};
 use rustls::ServerConfig;
 use std::{net::SocketAddr, sync::Arc};
@@ -22,7 +21,6 @@ use tracing::{error, info, warn};
  
 pub const CHAN_BUF: usize = 512;
  
-/// Main entry point: spawn the listener and the TUN forwarding loop.
 pub async fn run_proxy(
     bind_addr: SocketAddr,
     tls_config: Arc<ServerConfig>,
@@ -30,7 +28,7 @@ pub async fn run_proxy(
     tun: Arc<tokio::sync::Mutex<TunDevice>>,
     routes: Vec<String>,
 ) -> Result<()> {
-    // Apply routes to the TUN device
+    // Add routes to the proxy TUN at startup
     {
         let dev = tun.lock().await;
         for route in &routes {
@@ -48,166 +46,133 @@ pub async fn run_proxy(
     loop {
         let (stream, peer) = match listener.accept().await {
             Ok(v) => v,
-            Err(e) => {
-                error!("Accept error: {}", e);
-                continue;
-            }
+            Err(e) => { error!("Accept error: {}", e); continue; }
         };
  
         info!("Incoming connection from {}", peer);
  
-        let acceptor = acceptor.clone();
-        let sessions = sessions.clone();
-        let tun = tun.clone();
+        let acceptor  = acceptor.clone();
+        let sessions  = sessions.clone();
+        let tun       = tun.clone();
+        let routes    = routes.clone();
  
         tokio::spawn(async move {
-            if let Err(e) = handle_agent(stream, peer, acceptor, sessions, tun).await {
-                error!("Agent {} error: {:#}", peer, e);
+            if let Err(e) = handle_node(stream, peer, acceptor, sessions, tun, routes).await {
+                error!("Node {} error: {:#}", peer, e);
             }
         });
     }
 }
  
-async fn handle_agent(
+async fn handle_node(
     stream: TcpStream,
     peer: SocketAddr,
     acceptor: TlsAcceptor,
     sessions: SessionMap,
     tun: Arc<tokio::sync::Mutex<TunDevice>>,
+    routes: Vec<String>,
 ) -> Result<()> {
-    // --- TLS handshake ---
-    let mut tls = acceptor
-        .accept(stream)
-        .await
-        .context("TLS handshake failed")?;
+    // TLS handshake
+    let mut tls = acceptor.accept(stream).await.context("TLS handshake failed")?;
  
-    // --- Magic + version check ---
+    // Magic + version
     let mut magic = [0u8; 4];
     tls.read_exact(&mut magic).await.context("Read magic")?;
     if &magic != MAGIC {
         bail!("Bad magic from {}", peer);
     }
     let ver = tls.read_u8().await.context("Read version")?;
-    if ver != imugi_common::VERSION {
-        bail!("Version mismatch: got {}, want {}", ver, imugi_common::VERSION);
+    if ver != VERSION {
+        bail!("Version mismatch: got {}, want {}", ver, VERSION);
     }
  
-    // --- Read NodeHello ---
+    // NodeHello
     let hello: NodeHello = read_json_msg(&mut tls).await.context("Read NodeHello")?;
     info!(
-        "Agent hello: host={} user={} ifaces={}",
-        hello.hostname,
-        hello.username,
-        hello.interfaces.len()
+        "Node hello: host={} user={} os={} ifaces={}",
+        hello.hostname, hello.username, hello.os, hello.interfaces.len()
     );
  
-    // --- Create channels ---
-    // to_agent: proxy TUN reader -> agent writer
-    let (to_agent_tx, mut to_agent_rx) = mpsc::channel::<Vec<u8>>(CHAN_BUF);
-    // from_agent: agent reader -> proxy TUN writer
-    let (from_agent_tx, mut from_agent_rx) = mpsc::channel::<Vec<u8>>(CHAN_BUF);
+    // Channels: TUN reader → node writer, node reader → TUN writer
+    let (to_node_tx,   mut to_node_rx)   = mpsc::channel::<Vec<u8>>(CHAN_BUF);
+    let (from_node_tx, mut from_node_rx) = mpsc::channel::<Vec<u8>>(CHAN_BUF);
  
-    let session_id = register_session(&sessions, hello, to_agent_tx.clone(), from_agent_tx.clone()).await;
+    let session_id = register_session(
+        &sessions, hello, to_node_tx.clone(), from_node_tx.clone()
+    ).await;
  
-    // --- Send Ready ---
-    let ready = NodeMsg::Ready {
+    // Ready
+    write_json_msg(&mut tls, &NodeMsg::Ready { session_id: session_id.clone() })
+        .await.context("Write Ready")?;
+ 
+    // StartTunnel — tell the node which routes to add on its side
+    write_json_msg(&mut tls, &ProxyCmd::StartTunnel {
         session_id: session_id.clone(),
-    };
-    write_json_msg(&mut tls, &ready)
-        .await
-        .context("Write Ready")?;
+        routes: routes.clone(),
+    }).await.context("Write StartTunnel")?;
  
-    // --- Send StartTunnel ---
-    let start = ProxyCmd::StartTunnel {
-        session_id: session_id.clone(),
-    };
-    write_json_msg(&mut tls, &start)
-        .await
-        .context("Write StartTunnel")?;
- 
-    // Mark session active
     if let Some(entry) = sessions.get(&session_id) {
         entry.value().lock().await.state = SessionState::Active;
     }
+    info!("Tunnel active — session {} routes={:?}", session_id, routes);
  
-    info!("Tunnel active for session {}", session_id);
- 
-    // --- Split TLS stream into read/write halves ---
     let (mut tls_rx, mut tls_tx) = tokio::io::split(tls);
  
-    // Spawn TUN reader -> agent writer
-    let tun_clone = tun.clone();
-    let to_agent_tx_clone = to_agent_tx.clone();
+    // TUN reader → node writer
+    let tun_r = tun.clone();
+    let to_node_tx2 = to_node_tx.clone();
     tokio::spawn(async move {
         loop {
             let pkt = {
-                let mut dev = tun_clone.lock().await;
+                let mut dev = tun_r.lock().await;
                 match dev.read_packet().await {
                     Ok(p) => p,
-                    Err(e) => {
-                        error!("TUN read: {}", e);
-                        break;
-                    }
+                    Err(e) => { error!("TUN read: {}", e); break; }
                 }
             };
-            if to_agent_tx_clone.send(pkt).await.is_err() {
-                break;
-            }
+            if to_node_tx2.send(pkt).await.is_err() { break; }
         }
     });
  
-    // Spawn agent writer — drains to_agent channel -> tls_tx
+    // Node writer — drains to_node_rx → tls_tx
     tokio::spawn(async move {
-        while let Some(pkt) = to_agent_rx.recv().await {
-            let framed = imugi_common::encode_packet(&pkt);
-            if tls_tx.write_all(&framed).await.is_err() {
-                break;
-            }
+        while let Some(pkt) = to_node_rx.recv().await {
+            let framed = encode_packet(&pkt);
+            if tls_tx.write_all(&framed).await.is_err() { break; }
         }
     });
  
-    // Spawn TUN writer — drains from_agent channel -> TUN
+    // TUN writer — drains from_node_rx → TUN
     tokio::spawn(async move {
-        while let Some(pkt) = from_agent_rx.recv().await {
+        while let Some(pkt) = from_node_rx.recv().await {
             let mut dev = tun.lock().await;
-            if dev.write_packet(&pkt).await.is_err() {
-                break;
-            }
+            if dev.write_packet(&pkt).await.is_err() { break; }
         }
     });
  
-    // This task: agent reader — reads length-prefixed packets from tls_rx -> from_agent_tx
+    // Node reader — length-prefixed packets from tls_rx → from_node_tx
     let mut header = [0u8; DATA_HEADER_LEN];
     loop {
         match tls_rx.read_exact(&mut header).await {
             Ok(_) => {}
             Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
-                info!("Agent {} disconnected", peer);
+                info!("Node {} disconnected", peer);
                 break;
             }
-            Err(e) => {
-                warn!("Agent {} read error: {}", peer, e);
-                break;
-            }
+            Err(e) => { warn!("Node {} read error: {}", peer, e); break; }
         }
  
-        let len = imugi_common::decode_len(&header);
+        let len = decode_len(&header);
         if len == 0 || len > 65535 {
-            warn!("Suspicious packet len {} from {}", len, peer);
+            warn!("Bad packet len {} from {}", len, peer);
             continue;
         }
  
         let mut pkt = vec![0u8; len];
-        if tls_rx.read_exact(&mut pkt).await.is_err() {
-            break;
-        }
- 
-        if from_agent_tx.send(pkt).await.is_err() {
-            break;
-        }
+        if tls_rx.read_exact(&mut pkt).await.is_err() { break; }
+        if from_node_tx.send(pkt).await.is_err() { break; }
     }
  
-    // Mark dead
     if let Some(entry) = sessions.get(&session_id) {
         entry.value().lock().await.state = SessionState::Dead;
     }
@@ -215,7 +180,6 @@ async fn handle_agent(
     Ok(())
 }
  
-/// Read a length-prefixed JSON message.
 async fn read_json_msg<T, R>(reader: &mut R) -> Result<T>
 where
     T: for<'de> serde::Deserialize<'de>,
@@ -224,23 +188,19 @@ where
     let mut len_buf = [0u8; 4];
     reader.read_exact(&mut len_buf).await?;
     let len = u32::from_le_bytes(len_buf) as usize;
-    if len > 1024 * 64 {
-        bail!("JSON message too large: {}", len);
-    }
+    if len > 65536 { bail!("JSON message too large: {}", len); }
     let mut buf = vec![0u8; len];
     reader.read_exact(&mut buf).await?;
     Ok(serde_json::from_slice(&buf)?)
 }
  
-/// Write a length-prefixed JSON message.
 async fn write_json_msg<T, W>(writer: &mut W, msg: &T) -> Result<()>
 where
     T: serde::Serialize,
     W: AsyncWriteExt + Unpin,
 {
     let json = serde_json::to_vec(msg)?;
-    let len = json.len() as u32;
-    writer.write_all(&len.to_le_bytes()).await?;
+    writer.write_all(&(json.len() as u32).to_le_bytes()).await?;
     writer.write_all(&json).await?;
     Ok(())
 }

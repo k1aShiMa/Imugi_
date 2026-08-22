@@ -405,6 +405,7 @@ dependencies = [
  "tokio-util",
  "tracing",
  "tracing-subscriber",
+ "tun",
  "uuid",
 ]
 

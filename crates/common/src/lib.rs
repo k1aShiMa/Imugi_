@@ -1,12 +1,6 @@
 /// Imugi_ wire protocol — shared between imugi-proxy and imugi-node.
-///
-/// Control channel  : length-prefixed (4 bytes LE) JSON messages.
-/// Data channel     : length-prefixed (4 bytes LE) raw IP packet bytes.
-/// Both channels run multiplexed over the same TLS connection.
  
 use serde::{Deserialize, Serialize};
- 
-// ── Constants ────────────────────────────────────────────────────────────────
  
 pub const MAGIC: &[u8; 4] = b"IMGI";
 pub const VERSION: u8 = 1;
@@ -15,14 +9,12 @@ pub const DATA_HEADER_LEN: usize = 4;
  
 // ── Handshake ────────────────────────────────────────────────────────────────
  
-/// First message sent by the node after TLS handshake.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NodeHello {
     pub version: u8,
     pub hostname: String,
     pub username: String,
     pub os: String,
-    /// All network interfaces visible from the node.
     pub interfaces: Vec<NodeInterface>,
     pub node_id: String,
 }
@@ -30,7 +22,6 @@ pub struct NodeHello {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NodeInterface {
     pub name: String,
-    /// Addresses in CIDR notation, e.g. "192.168.2.10/24"
     pub addrs: Vec<String>,
 }
  
@@ -40,11 +31,15 @@ pub struct NodeInterface {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum ProxyCmd {
-    /// Assign session and start forwarding.
-    StartTunnel { session_id: String },
-    /// Graceful shutdown.
+    /// Tell the node which subnets to route into the tunnel.
+    /// The node creates a TUN, adds these routes via it, and starts forwarding.
+    StartTunnel {
+        session_id: String,
+        /// Subnets the node should route through its local TUN
+        /// e.g. ["10.10.110.0/24", "192.168.2.0/24"]
+        routes: Vec<String>,
+    },
     Shutdown,
-    /// Keepalive.
     Ping { seq: u64 },
 }
  
@@ -52,7 +47,6 @@ pub enum ProxyCmd {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum NodeMsg {
-    /// Proxy accepted the node; tunnel is ready.
     Ready { session_id: String },
     Pong { seq: u64 },
     Error { msg: String },
@@ -60,7 +54,7 @@ pub enum NodeMsg {
  
 // ── Packet framing ───────────────────────────────────────────────────────────
  
-/// Encode a raw IP packet for the data channel: [4-byte LE len][packet bytes].
+/// Encode a raw IP packet: [4-byte LE len][packet bytes]
 pub fn encode_packet(pkt: &[u8]) -> bytes::Bytes {
     let mut buf = bytes::BytesMut::with_capacity(DATA_HEADER_LEN + pkt.len());
     buf.extend_from_slice(&(pkt.len() as u32).to_le_bytes());
@@ -72,8 +66,6 @@ pub fn encode_packet(pkt: &[u8]) -> bytes::Bytes {
 pub fn decode_len(header: &[u8; 4]) -> usize {
     u32::from_le_bytes(*header) as usize
 }
- 
-// ── JSON message framing helpers ─────────────────────────────────────────────
  
 /// Serialize a value to a length-prefixed JSON frame.
 pub fn frame_json<T: Serialize>(msg: &T) -> anyhow::Result<bytes::Bytes> {

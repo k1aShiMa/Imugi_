@@ -70,7 +70,8 @@ async fn run_once(proxy_addr: SocketAddr, tls_config: Arc<rustls::ClientConfig>)
  
     info!("Tunnel active — session {}", session.session_id);
  
-    forward::run_forwarding(session.tls)
+    // Pass the routes the proxy told us about down to the forwarding loop
+    forward::run_forwarding(session.tls, session.routes)
         .await
         .context("Forwarding loop")?;
  
